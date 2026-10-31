@@ -28,6 +28,8 @@
 	"files": [
 		"index.ts",
 		"config.ts",
+		"tiers.ts",
+		"model-tiers.json",
 		"CHANGELOG.md"
 	],
 	"exports": {
