@@ -1,0 +1,125 @@
+{
+  "$comment": "Central model-tier policy shared by hyperresearch orchestration and rpiv workflows. Tiers are COST bands (small/medium/large); membership is Pareto-driven: a model belongs to a tier when it meets that tier's measured quality bar at that tier's cost. Stages map to tiers; tiers resolve to host-opaque model keys (provider/id or host alias) per executing host.",
+  "version": 2,
+  "tiers": {
+    "small": {
+      "description": "Mechanical extraction: fetch notes, pull claims, parse pairs, score readability. Schema-following work where failure is visible (parse errors, empty fields). Anchor cost class: haiku.",
+      "requires": {
+        "min_context_tokens": 32000,
+        "structured_output": true,
+        "validator": "deterministic schema check + 1 retry, then escalate"
+      }
+    },
+    "medium": {
+      "description": "Coherent assembly: loci analysis, evidence digests, draft variants, polish application. Needs multi-part instruction following; drafts are redundant by design. Anchor cost class: sonnet.",
+      "requires": {
+        "min_context_tokens": 64000,
+        "structured_output": false,
+        "validator": "spot-check + judge-tier stages downstream"
+      }
+    },
+    "large": {
+      "description": "Verdicts that stick: depth investigation, critics, synthesis, saw review, final assembly, sampled cite-check adjudication. Every quality call in the 2026-10-20 run came from this tier. Anchor cost class: opus.",
+      "requires": {
+        "min_context_tokens": 64000,
+        "structured_output": false,
+        "validator": "none cheaper — this tier IS the validator"
+      }
+    }
+  },
+  "bindings": {
+    "pi": {
+      "$comment": "Pi harness host: 15+ providers, mid-session switching. Bare aliases resolve through Pi's registry.",
+      "small": "haiku",
+      "medium": "sonnet",
+      "large": "opus"
+    },
+    "praxis": {
+      "$comment": "Headless Claude-Code runner (claude-host.ts claudeModel): provider/id keys accepted but non-anthropic providers throw — effectively Anthropic-only on this host. Note: rpiv-wf run honors --model as the run-wide default with pack per-stage pins overriding (cli.ts).",
+      "small": "haiku",
+      "medium": "sonnet",
+      "large": "claude-opus-5-5"
+    }
+  },
+  "candidates": [
+    {
+      "tier": "small",
+      "candidate": "deepseek-flash-class (haiku cost class)",
+      "status": "SELECTED-2026-10-20",
+      "thesis": "Performs comparably to opus-class on extract-shaped work at haiku-class cost — i.e. a Pareto break: large-tier quality at small-tier price on mechanical stages.",
+      "e1": "ds-flash recall 0.66 (R1 full harness) / 0.59 (R2 lean harness) / 0.71 (R3 bare API) / 0.65 (R4 bare API + lean system message). Verdict: run BARE via direct API, no system message, validator + 1 retry (1 garble in 60 trials). Any preamble costs ~0.06 recall on this model. ds-flash-1017: 0.69/0.62/0.68/0.66 — best harnessed, container drift only via pi --system-prompt path. 5 notes, 38 reference claims, threshold fixed pre-run. Artifacts: /tmp/e1cheap (scratch).",
+      "needs": "E2 edge overlap, then Opus arm for the large-tier comparison the thesis actually requires"
+    },
+    {
+      "tier": "small",
+      "candidate": "glm-flash-class",
+      "status": "TESTED-2026-10-20",
+      "e1": "Recall 0.70 (R1) / 0.67 (R2) / 0.63 (R3 direct API) — benefits most from harness scaffolding, weakest bare. Arrays on all 15 trials. Fastest wall in R3 (75s/5 notes).",
+      "needs": "E2 edge overlap; consider quote-overlap recall as a fairer promotion metric"
+    },
+    {
+      "tier": "small",
+      "candidate": "mimo-flash-class",
+      "status": "TESTED-2026-10-20",
+      "e1": "Recall 0.65 (R1) / 0.61 (R2) / 0.57 (R3) — weakest in all three rounds. No quality case over glm/ds at current pricing.",
+      "needs": "nothing further unless pricing moves"
+    },
+    {
+      "tier": "small",
+      "candidate": "llama-3.1-8b-class and later 8b variants (128k context)",
+      "status": "UNVERIFIED",
+      "notes": "Base llama-3-8b is DISQUALIFIED for fetch: 8k context cannot fit full pages. 128k variants clear the context floor; unproven: structured-output reliability and extraction recall. Local Ollama attractive at volume (~$0 marginal, private); throughput is the tradeoff.",
+      "needs": "host provider key (groq/together/cerebras/ollama-local) + E1 parity"
+    },
+    {
+      "tier": "TBD",
+      "candidate": "luna",
+      "status": "NEEDS-KEY",
+      "needs": "identify model + provider key, assign trial tier, then E1"
+    },
+    {
+      "tier": "TBD",
+      "candidate": "sol",
+      "status": "NEEDS-KEY",
+      "needs": "identify model + provider key, assign trial tier, then E1"
+    }
+  ],
+  "maps": {
+    "hyperresearch": {
+      "$comment": "Step name -> tier for the 16-step research pipeline. saw is the subtract step (synthesis -> saw -> citecheck -> polish).",
+      "sweep": "small",
+      "fetch": "small",
+      "claims-extract": "small",
+      "loci": "medium",
+      "evidence-digest": "medium",
+      "investigate-depth": "large",
+      "consensus": "medium",
+      "contradiction": "medium",
+      "draft": "medium",
+      "critic": "large",
+      "synthesis": "large",
+      "saw": "large",
+      "citecheck-extract": "small",
+      "citecheck-adjudicate-sample": "large",
+      "polish": "medium",
+      "readability": "small",
+      "final": "large"
+    },
+    "rpiv": {
+      "$comment": "Packs pin WorkflowModels.stages from these tiers via bindings; ladder is tier names, materialized to keys at run time. rpiv-wf run --model sets the run-wide default underneath pack pins.",
+      "default": "medium",
+      "ladder": ["small", "medium", "large"]
+    }
+  },
+  "escalation": {
+    "on_validator_failure": "climb one tier and retry",
+    "max_attempts": 2,
+    "record": "model-escalation run-log row (rpiv) / patch-log entry (hyperresearch)"
+  },
+  "verification": {
+    "$comment": "Pareto rule: tiers are cost bands, membership is measured. The evals harness already records per-model tokens and total_cost_usd (claude-host.ts) — cost coordinates come free; E1/E2 supply quality coordinates. Re-evaluate bindings as prices move; a cheaper model meeting a higher tier's bar promotes the binding, not the tier. 2026-10-20 lesson: stripping the harness (lean system prompt + --no-tools) cost 0.04-0.08 recall and introduced container drift — keep the harness, gate with validator+retry.",
+    "promotion": "E1 recall >= 0.90 with validator + 1 retry, then E2 edge overlap within 10% of reference (note: no arm has cleared 0.90 under single-reference recall; revisit the metric — quote-overlap recall — before treating the bar as failed)",
+    "reference_set": "claims table + contradiction-graph.json from run pi-plugin-ecosystem-skills-e7d4aa",
+    "pareto_note": "DeepSeek-flash thesis test: if it clears the large bar on extract-shaped stages at small cost, it does not become 'large' — it becomes the small binding for those stages, and the frontier moves."
+  }
+}
